@@ -5,7 +5,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.chains import RetrievalQA
-
+from groq import Groq
 from transformers import pipeline
 from config import DOCUMENTS_DIR
 from config import (
@@ -16,7 +16,7 @@ from config import (
     NUM_RETRIEVED_DOCS,
     TEMPERATURE,
     MODEL_NAME,
-    OPENAI_API_KEY
+    GROQ_API_KEY
 )
 
 def load_documents(directory):
@@ -83,33 +83,20 @@ def split_documents(documents):
     
     return chunks
 def create_vector_store(chunks):
-    """
-    Create a vector database from document chunks.
-    
-    Args:
-        chunks: List of document chunks
-    
-    Returns:
-        Vector store object
-    """
+
     print("\nCreating vector database...")
-    
-    # Check if API key is set
-    if not OPENAI_API_KEY:
-        raise ValueError("OPENAI_API_KEY not found in .env file!")
-    
-    # Initialize embeddings
+
     embeddings = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
-)
-    
-    # Create vector store
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
+    )
+
     vectorstore = FAISS.from_documents(
-    documents=chunks,
-    embedding=embeddings
-)
-    
-    print(f"✓ Vector database created in '{VECTOR_DB_DIR}'")
+        documents=chunks,
+        embedding=embeddings
+    )
+
+    print("✓ Vector database created")
+
     return vectorstore
 def load_vector_store():
     return None
@@ -121,40 +108,72 @@ def load_vector_store():
     """
     if os.path.exists(VECTOR_DB_DIR) and os.listdir(VECTOR_DB_DIR):
         print(f"Loading existing vector database from '{VECTOR_DB_DIR}'...")
-        embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
-        vectorstore = Chroma(
-            persist_directory=VECTOR_DB_DIR,
-            embedding_function=embeddings
+        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+        vectorstore = FAISS.load_local(
+            folder_path=VECTOR_DB_DIR,
+            embeddings=embeddings
         )
         print("✓ Vector database loaded")
         return vectorstore
     return None
+
+def create_qa_chain(vectorstore):
+
+    print("\nSetting up Groq Q&A system...")
+
+    client = Groq(
+        api_key=GROQ_API_KEY
+    )
+
+    print("✓ Groq Q&A system ready")
+
+    return {
+        "retriever": vectorstore.as_retriever(
+            search_kwargs={"k": NUM_RETRIEVED_DOCS}
+        ),
+        "client": client
+    }
 def ask_question(qa_system, question):
 
     print(f"\nQuestion: {question}")
     print("Searching documents...")
 
     try:
+
         retriever = qa_system["retriever"]
-        generator = qa_system["generator"]
+        client = qa_system["client"]
 
         docs = retriever.get_relevant_documents(question)
 
-        context = "\n".join([doc.page_content[:200] for doc in docs[:2]])
+        context = "\n".join(
+            [doc.page_content[:500] for doc in docs[:3]]
+        )
 
         prompt = f"""
-        Context:
-        {context}
+You are an agricultural expert assistant.
 
-        Question:
-        {question}
+Use ONLY the context below to answer.
 
-        Answer briefly and clearly:
-        """
+Context:
+{context}
 
-        response = generator(prompt)
+Question:
+{question}
 
-        answer = response[0]["generated_text"].strip()
+Answer clearly:
+"""
+
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            model="llama-3.1-8b-instant"
+        )
+
+        answer = chat_completion.choices[0].message.content
 
         return {
             "answer": answer,
@@ -167,26 +186,6 @@ def ask_question(qa_system, question):
             "answer": f"Error: {str(e)}",
             "sources": []
         }
-
-def create_qa_chain(vectorstore):
-
-    print("\nSetting up Q&A system...")
-
-    generator = pipeline(
-    task="text-generation",
-    model="google/flan-t5-base",
-    max_new_tokens=100,
-    temperature=0.2
-    )
-
-    print("✓ Q&A system ready")
-
-    return {
-        "retriever": vectorstore.as_retriever(
-            search_kwargs={"k": NUM_RETRIEVED_DOCS}
-        ),
-        "generator": generator
-    }    
 def main():
     """
     Main function to initialize and run the Q&A system.
