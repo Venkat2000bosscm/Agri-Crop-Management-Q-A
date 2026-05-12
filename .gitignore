@@ -1,0 +1,5 @@
+venv/
+.env
+agri_db/
+__pycache__/
+*.pyc
