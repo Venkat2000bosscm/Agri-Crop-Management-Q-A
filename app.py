@@ -1,6 +1,6 @@
 import streamlit as st
 from main import main, load_vector_store, create_qa_chain, ask_question
-from config import DOCUMENTS_DIR, OPENAI_API_KEY
+from config import DOCUMENTS_DIR
 
 st.set_page_config(page_title="🌾 Agri Crop Q&A", page_icon="🌾")
 
