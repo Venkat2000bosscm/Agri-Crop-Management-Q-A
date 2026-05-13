@@ -95,27 +95,30 @@ def create_vector_store(chunks):
         embedding=embeddings
     )
 
-    print("✓ Vector database created")
+    # Save database locally
+    vectorstore.save_local(VECTOR_DB_DIR)
+
+    print(f"✓ Vector database saved in '{VECTOR_DB_DIR}'")
 
     return vectorstore
 def load_vector_store():
-    return None
-    """
-    Load existing vector database if it exists.
-    
-    Returns:
-        Vector store object or None if not found
-    """
-    if os.path.exists(VECTOR_DB_DIR) and os.listdir(VECTOR_DB_DIR):
-        print(f"Loading existing vector database from '{VECTOR_DB_DIR}'...")
-        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-        vectorstore = FAISS.load_local(
-            folder_path=VECTOR_DB_DIR,
-            embeddings=embeddings
-        )
-        print("✓ Vector database loaded")
-        return vectorstore
-    return None
+
+    print("\nLoading existing vector database...")
+
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
+    )
+
+    vectorstore = FAISS.load_local(
+        VECTOR_DB_DIR,
+        embeddings,
+        
+    )
+
+    print("✓ Vector database loaded")
+
+    return vectorstore
+
 
 def create_qa_chain(vectorstore):
 
@@ -152,7 +155,13 @@ def ask_question(qa_system, question):
         prompt = f"""
 You are an agricultural expert assistant.
 
-Use ONLY the context below to answer.
+Answer ONLY using the provided context.
+
+If the answer is not clearly available in the context, say:
+
+"I could not find the answer in the uploaded documents."
+
+Do not use outside knowledge.
 
 Context:
 {context}
@@ -160,7 +169,7 @@ Context:
 Question:
 {question}
 
-Answer clearly:
+Answer clearly and briefly:
 """
 
         chat_completion = client.chat.completions.create(
@@ -195,24 +204,26 @@ def main():
     print("=" * 60)
     
     # Try to load existing vector store
-    vectorstore = load_vector_store()
-    
-    # If not found, create new one
-    if vectorstore is None:
-        print("\nNo existing database found. Creating new one...")
-        
-        # Load documents
+    # Check if database exists
+    faiss_file = os.path.join(VECTOR_DB_DIR, "index.faiss")
+
+    if os.path.exists(faiss_file):
+
+        print("Loading existing database...")
+
+        vectorstore = load_vector_store()
+
+    else:
+
+        print("No existing database found. Creating new one...")
+
         documents = load_documents(DOCUMENTS_DIR)
-        
-        if not documents:
-            print("No documents found! Please add PDF files to the 'documents' folder.")
-            return
-        
-        # Split into chunks
+
         chunks = split_documents(documents)
-        
-        # Create vector store
+
         vectorstore = create_vector_store(chunks)
+        # Create vector store
+    
     
     # Create Q&A chain
     qa_system = create_qa_chain(vectorstore)

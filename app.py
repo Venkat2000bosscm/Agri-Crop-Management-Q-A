@@ -1,34 +1,117 @@
+import os
 import streamlit as st
-from main import main, load_vector_store, create_qa_chain, ask_question
-from config import DOCUMENTS_DIR
 
-st.set_page_config(page_title="🌾 Agri Crop Q&A", page_icon="🌾")
+from main import (
+    load_documents,
+    split_documents,
+    create_vector_store,
+    load_vector_store,
+    create_qa_chain,
+    ask_question
+)
+
+from config import (
+    DOCUMENTS_DIR,
+    VECTOR_DB_DIR
+)
+
+# ---------------------------------------------------
+# Streamlit Page Config
+# ---------------------------------------------------
+
+st.set_page_config(
+    page_title="🌾 Agri Crop Q&A",
+    page_icon="🌾",
+    layout="wide"
+)
 
 st.title("🌾 Agri Crop Management Q&A System")
-st.markdown("Ask questions about crop management and pest control")
 
-# Initialize session state
-if 'qa_chain' not in st.session_state:
-    with st.spinner("Loading system..."):
+st.markdown(
+    "Ask questions about crop management and pest control."
+)
+
+# ---------------------------------------------------
+# Initialize System
+# ---------------------------------------------------
+
+@st.cache_resource
+def initialize_system():
+
+    faiss_file = os.path.join(VECTOR_DB_DIR, "index.faiss")
+    pkl_file = os.path.join(VECTOR_DB_DIR, "index.pkl")
+
+    # Load existing DB
+    if os.path.exists(faiss_file) and os.path.exists(pkl_file):
+
+        st.success("✅ Existing vector database loaded")
+
         vectorstore = load_vector_store()
-        if vectorstore:
-            st.session_state.qa_chain = create_qa_chain(vectorstore)
-            st.success("System loaded!")
-        else:
-            st.error("No database found. Please run main.py first to create the database.")
 
-# Question input
-question = st.text_input("Ask your question:", placeholder="e.g., What are common cotton pests?")
-
-if st.button("Get Answer") and question:
-    if 'qa_chain' in st.session_state:
-        result = ask_question(st.session_state.qa_chain, question)
-        st.markdown("### Answer:")
-        st.write(result["answer"])
-        
-        if result["sources"]:
-            st.markdown("### Sources:")
-            for i, source in enumerate(result["sources"][:3], 1):
-                st.write(f"{i}. {source.metadata.get('source', 'Unknown')}")
+    # Create new DB
     else:
-        st.error("System not initialized. Please run main.py first.")
+
+        st.warning("⚠ No database found. Creating new database...")
+
+        documents = load_documents(DOCUMENTS_DIR)
+
+        chunks = split_documents(documents)
+
+        vectorstore = create_vector_store(chunks)
+
+    qa_system = create_qa_chain(vectorstore)
+
+    return qa_system
+
+# Initialize QA system
+qa_system = initialize_system()
+
+# ---------------------------------------------------
+# Question Input
+# ---------------------------------------------------
+
+question = st.text_input(
+    "Ask your question:",
+    placeholder="e.g., What are common cotton pests?"
+)
+
+# ---------------------------------------------------
+# Get Answer
+# ---------------------------------------------------
+
+if st.button("Get Answer"):
+
+    if question:
+
+        with st.spinner("Searching documents..."):
+
+            result = ask_question(qa_system, question)
+
+        st.markdown("## 🤖 Answer")
+
+        st.write(result["answer"])
+
+        # Sources
+        if result["sources"]:
+
+            st.markdown("## 📚 Sources")
+
+            for i, source in enumerate(result["sources"][:3], 1):
+
+                source_name = source.metadata.get(
+                    "source",
+                    "Unknown"
+                )
+
+                page_num = source.metadata.get(
+                    "page",
+                    "N/A"
+                )
+
+                st.write(
+                    f"{i}. Page {page_num} from {source_name}"
+                )
+
+    else:
+
+        st.warning("Please enter a question.")
